@@ -1,0 +1,62 @@
+name: Ultra-Light Release Build
+
+on:
+  workflow_dispatch: # מאפשר הפעלה ידנית בלבד
+
+permissions:
+  contents: write 
+
+jobs:
+  build:
+    runs-on: windows-latest
+    env:
+      PYTHONUTF8: 1 # פותר את קריסות קידוד העברית והאימוג'ים
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: Setup Python 3.11
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+        cache: 'pip'
+
+    - name: Install UPX (For extreme binary compression)
+      # מתקין את UPX שידחס את כל קבצי ה-DLL של PyTorch ו-Qt
+      run: choco install upx -y
+
+    - name: Create Required Folders
+      shell: bash
+      run: |
+        mkdir -p data/raw_scans data/processed src gui weights checkpoints
+
+    - name: Install Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        # התקנת PyTorch למעבד בלבד חוסכת כ-2.5 גיגה-בייט של משקל!
+        pip install torch==2.3.1 torchvision==0.18.1 --index-url https://download.pytorch.org/whl/cpu
+        # Headless OpenCV חוסך משקל ומונע כפילות עם ספריות התצוגה של PyQt6
+        pip install onnxruntime==1.18.1 onnx opencv-python-headless albumentations pandas PyQt6 Pillow numpy jiwer pyinstaller
+
+    - name: Build EXE (Using your Optimized Script)
+      # מריץ את הסקריפט שלך שמשתמש ב-PyInstaller
+      # בסקריפט שלך הגדרת excludes לספריות כמו scipy ו-matplotlib, מה שיחסוך המון משקל
+      run: python build_exe.py
+
+    - name: Ultra-Compress with 7-Zip
+      shell: cmd
+      # שימוש ב-7z עם דחיסת מקסימום (-mx=9) במקום ZIP רגיל
+      run: |
+        7z a -tzip -mx=9 MyOCR_Windows.zip .\dist\MyCustomOCR\*
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v2
+      with:
+        files: MyOCR_Windows.zip
+        tag_name: v3.0.${{ github.run_number }}
+        name: OCR Ultra-Light Release v3.0.${{ github.run_number }}
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
