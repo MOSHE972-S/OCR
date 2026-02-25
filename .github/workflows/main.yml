@@ -1,0 +1,55 @@
+name: Super Fast Release Build
+
+on:
+  workflow_dispatch: # מאפשר הפעלה ידנית בלבד
+
+permissions:
+  contents: write # נותן רשות ליצור Release
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Python Setup
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11' # יציב יותר עבור PyTorch/ONNX ב-Windows
+        cache: 'pip'
+
+    - name: Create Required Folders
+      # מונע קריסה של PyInstaller במידה והתיקיות לא נדחפו ל-GitHub
+      shell: bash
+      run: mkdir -p data/raw_scans data/processed src gui weights checkpoints
+
+    - name: Install Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        # התקנת גרסת CPU
+        pip install torch==2.3.1 torchvision==0.18.1 --index-url https://download.pytorch.org/whl/cpu
+        # הוספתי את onnx ו-albumentations שהיו חסרים
+        pip install onnxruntime==1.18.1 onnx opencv-python-headless albumentations pandas PyQt6 Pillow numpy jiwer pyinstaller
+
+    - name: Build EXE (Using internal script)
+      # שימוש בסקריפט הקיים שלך שמייצר את ה-.spec המיועל ומוחק ספריות כבדות
+      run: python build_exe.py
+
+    - name: Zip for Speed
+      shell: powershell
+      run: |
+        # דחיסת תיקיית התוצר (הסקריפט שלך יוצר את dist/MyCustomOCR)
+        Compress-Archive -Path dist\MyCustomOCR -DestinationPath MyOCR_Windows.zip
+
+    - name: Create Fast Release
+      uses: softprops/action-gh-release@v2
+      with:
+        files: MyOCR_Windows.zip
+        tag_name: v1.0.${{ github.run_number }}
+        name: OCR Release v1.0.${{ github.run_number }}
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
