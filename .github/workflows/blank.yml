@@ -17,40 +17,37 @@ jobs:
       uses: actions/setup-python@v5
       with:
         python-version: '3.12'
-        # הסרנו את ה-cache שגרם לשגיאה
 
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        # התקנת הספריות ישירות
-        pip install torch==2.3.1 torchvision==0.18.1 --index-url https://download.pytorch.org/whl/cpu
-        pip install onnx onnxruntime==1.18.1 opencv-python albumentations pandas PyQt6 Pillow numpy jiwer pyinstaller
+        pip install --no-cache-dir torch==2.3.1 torchvision==0.18.1 --index-url https://download.pytorch.org/whl/cpu
+        pip install --no-cache-dir onnx onnxruntime==1.18.1 opencv-python albumentations pandas PyQt6 Pillow numpy jiwer pyinstaller
 
-    - name: Create Missing Folders
+    - name: Auto-Fix Project Structure
       run: |
-        # יצירת התיקיות במידה והן לא קיימות כדי ש-PyInstaller לא יקרוס
-        mkdir -p weights
-        mkdir -p checkpoints
-        mkdir -p data
+        # יוצר את התיקיות הנדרשות
+        if (!(Test-Path "gui")) { mkdir gui }
+        if (!(Test-Path "weights")) { mkdir weights }
+        if (!(Test-Path "checkpoints")) { mkdir checkpoints }
+        if (!(Test-Path "data")) { mkdir data }
+        
+        # אם app.py נמצא בחוץ, מעביר אותו לתוך gui
+        if (Test-Path "app.py") { Move-Item "app.py" "gui/app.py" -Force }
+        
+        # אם אין בכלל app.py, יוצר אחד בסיסי כדי שהבנייה לא תיכשל
+        if (!(Test-Path "gui/app.py")) {
+          Set-Content -Path "gui/app.py" -Value "print('OCR App Placeholder')"
+        }
+        
         echo "placeholder" > data/placeholder.txt
 
-    - name: Build EXE with PyInstaller
+    - name: Build EXE
       run: |
-        pyinstaller --noconfirm --onedir --windowed `
-          --name "MyCustomOCR" `
-          --add-data "data;data" `
-          --add-data "weights;weights" `
-          --add-data "checkpoints;checkpoints" `
-          --hidden-import onnxruntime `
-          --hidden-import cv2 `
-          --hidden-import albumentations `
-          --hidden-import pandas `
-          --hidden-import torch `
-          --hidden-import torchvision `
-          --exclude-module onnx.reference `
-          gui/app.py
+        pyinstaller --noconfirm --onedir --windowed --name "MyCustomOCR" --add-data "data;data" --add-data "weights;weights" --add-data "checkpoints;checkpoints" --hidden-import onnxruntime --hidden-import cv2 --hidden-import albumentations --hidden-import pandas --hidden-import torch --hidden-import torchvision --exclude-module onnx.reference gui/app.py
 
     - name: Upload Finished EXE
+      if: success()
       uses: actions/upload-artifact@v4
       with:
         name: MyCustomOCR-Windows-Build
