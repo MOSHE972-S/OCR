@@ -9,10 +9,18 @@ class InferenceEngine:
     def __init__(self, onnx_path):
         opts = ort.SessionOptions()
         opts.intra_op_num_threads = 2
+        # בחר Provider: DirectML לאינטל/AMD, CPU לכולם
+        providers = ["CPUExecutionProvider"]
+        try:
+            available = ort.get_available_providers()
+            if "DmlExecutionProvider" in available:
+                providers = ["DmlExecutionProvider", "CPUExecutionProvider"]
+        except Exception:
+            pass
         self.session = ort.InferenceSession(
             onnx_path,
             sess_options=opts,
-            providers=["CPUExecutionProvider"]
+            providers=providers
         )
         self.input_name = self.session.get_inputs()[0].name
 

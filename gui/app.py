@@ -34,8 +34,14 @@ def _gpu_info():
     try:
         import torch
         if torch.cuda.is_available():
-            return torch.cuda.get_device_name(0)
-        return "לא זוהה GPU — פועל על CPU"
+            return "NVIDIA " + torch.cuda.get_device_name(0)
+        try:
+            import intel_extension_for_pytorch as ipex
+            if hasattr(torch, "xpu") and torch.xpu.is_available():
+                return "Intel GPU (XPU) — IPEX פעיל"
+        except Exception:
+            pass
+        return "CPU בלבד"
     except Exception:
         return "CPU"
 

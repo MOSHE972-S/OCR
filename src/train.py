@@ -20,20 +20,30 @@ WEIGHTS_DIR    = "weights"
 
 
 def _get_device():
-    """בחר מכשיר לפי הזמינות — CUDA > CPU."""
+    """בחר מכשיר לפי הזמינות — CUDA > Intel XPU > CPU."""
     if torch.cuda.is_available():
         return torch.device("cuda")
+    # Intel GPU דרך IPEX
+    try:
+        import intel_extension_for_pytorch as ipex
+        if hasattr(torch, "xpu") and torch.xpu.is_available():
+            return torch.device("xpu")
+    except Exception:
+        pass
     return torch.device("cpu")
 
 
 def _get_batch_size(device):
-    """Batch size קטן יותר על GPU חלש / CPU."""
+    """Batch size לפי סוג המכשיר."""
     if device.type == "cuda":
         try:
             gb = torch.cuda.get_device_properties(0).total_memory / 1e9
             return 8 if gb < 2 else 16
         except Exception:
             return 8
+    if device.type == "xpu":
+        # Intel HD Graphics — זיכרון משותף עם RAM, נשמור על batch קטן
+        return 8
     return 8   # CPU
 
 
@@ -74,8 +84,15 @@ class TrainWorker(QThread):
             lr=1e-3, weight_decay=1e-4
         )
         criterion = nn.CTCLoss(blank=0, zero_infinity=True)
-        use_amp   = device.type == "cuda"
-        scaler    = torch.cuda.amp.GradScaler(enabled=use_amp)
+        # Mixed Precision: CUDA או Intel XPU (דרך IPEX)
+        use_amp = device.type in ("cuda", "xpu")
+        if device.type == "xpu":
+            try:
+                import intel_extension_for_pytorch as ipex
+                model, optimizer = ipex.optimize(model, optimizer=optimizer, dtype=torch.float16)
+            except Exception:
+                use_amp = False
+        scaler = torch.cuda.amp.GradScaler(enabled=(use_amp and device.type == "cuda"))
 
         start_epoch = 0
         ckpt_path   = os.path.join(CHECKPOINT_DIR, "last_checkpoint.pth")
