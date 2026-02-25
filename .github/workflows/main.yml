@@ -1,50 +1,29 @@
-name: Super Fast Release Build (Nuitka)
-
-on:
-  workflow_dispatch: # מאפשר לך להפעיל ידנית בלבד
-
-permissions:
-  contents: write # נותן רשות ליצור Release מהיר בדף הראשי
-
-jobs:
-  build:
-    runs-on: windows-latest
-
-    steps:
-    - name: Checkout
-      uses: actions/checkout@v4
-
-    - name: Python Setup
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.11' # 3.11 מומלץ ליציבות מרבית עם Nuitka ו-AI
-        cache: 'pip'
-
-    - name: Create Required Folders
+- name: Create Required Folders
       shell: bash
-      # יצירת התיקיות הריקות כדי ש-Nuitka לא יקרוס כשנבקש ממנו לכלול אותן
-      run: mkdir -p data/raw_scans data/processed src gui weights checkpoints
+      run: |
+        mkdir -p data/raw_scans data/processed src gui weights checkpoints
+        # Nuitka שונא תיקיות ריקות, אז ניצור קובץ ריק קטן בכל אחת מהן כדי שיהיה לו מה להעתיק
+        touch data/.keep weights/.keep checkpoints/.keep
 
     - name: Install Dependencies
       run: |
         python -m pip install --upgrade pip
-        # התקנת גרסת CPU
         pip install torch==2.3.1 torchvision==0.18.1 --index-url https://download.pytorch.org/whl/cpu
         pip install onnxruntime==1.18.1 onnx opencv-python-headless albumentations pandas PyQt6 Pillow numpy jiwer
-        
-        # התקנת Nuitka וכלי עזר לדחיסה מהירה (zstandard) שמשפר את הביצועים
         pip install nuitka zstandard
 
     - name: Build EXE with Nuitka
       shell: cmd
-      # הרצת Nuitka. הוספנו פלאגינים ל-PyQt6 ו-Numpy, והחרגנו ספריות מיותרות
+      env:
+        PYTHONUTF8: 1
       run: |
         python -m nuitka ^
           --standalone ^
+          --assume-yes-for-downloads ^
           --windows-console-mode=disable ^
           --output-filename=MyCustomOCR ^
           --enable-plugin=pyqt6 ^
-          --enable-plugin=numpy ^
+          --module-parameter=torch-disable-jit=yes ^
           --include-package-data=onnxruntime ^
           --include-package-data=torch ^
           --include-package-data=cv2 ^
@@ -58,10 +37,7 @@ jobs:
     - name: Rename and Zip for Speed
       shell: powershell
       run: |
-        # Nuitka יוצר את הקבצים בתוך תקייה שנקראת app.dist
-        # נשנה את שמה לשם האפליקציה כדי שיהיה יפה למשתמש שמחלץ את ה-ZIP
         Rename-Item -Path "dist\app.dist" -NewName "MyCustomOCR_App"
-        # נדחס ל-ZIP
         Compress-Archive -Path "dist\MyCustomOCR_App" -DestinationPath "MyOCR_Windows.zip"
 
     - name: Create Fast Release
