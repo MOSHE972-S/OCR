@@ -1,7 +1,7 @@
 name: Ultra-Light Release Build
 
 on:
-  workflow_dispatch: # מאפשר הפעלה ידנית בלבד
+  workflow_dispatch:
 
 permissions:
   contents: write 
@@ -10,7 +10,8 @@ jobs:
   build:
     runs-on: windows-latest
     env:
-      PYTHONUTF8: 1 # פותר את בעיות הקידוד בעברית
+      PYTHONUTF8: 1
+      ORT_LOGGING_LEVEL: 3 # מונע קריסות לוגים של ONNX בזמן הבנייה
 
     steps:
     - name: Checkout Repository
@@ -22,27 +23,61 @@ jobs:
         python-version: '3.11'
         cache: 'pip'
 
+    - name: Install UPX (For binary compression)
+      run: choco install upx -y
+
     - name: Create Required Folders
-      shell: bash
+      shell: powershell
       run: |
-        mkdir -p data/raw_scans data/processed src gui weights checkpoints
+        New-Item -ItemType Directory -Force -Path data/raw_scans, data/processed, src, gui, weights, checkpoints
 
     - name: Install Dependencies
       run: |
         python -m pip install --upgrade pip
-        # PyTorch למעבד (חוסך 2.5GB!) + OpenCV ללא GUI למניעת התנגשות עם PyQt6
+        # מונע התנגשויות גרסאות של Numpy
+        pip install "numpy<2.0.0"
+        # התקנת גרסאות CPU כדי לחסוך גיגה-בייטים של משקל
         pip install torch==2.3.1 torchvision==0.18.1 --index-url https://download.pytorch.org/whl/cpu
-        pip install onnxruntime==1.18.1 onnx opencv-python-headless albumentations pandas PyQt6 Pillow numpy jiwer pyinstaller
+        pip install onnxruntime==1.18.1 onnx opencv-python-headless albumentations pandas PyQt6 Pillow jiwer pyinstaller
 
-    - name: Patch Scripts (Fix Crash & Sys Path)
-      shell: python
-      # מתקן אוטומטית את ניתוב התיקיות באפליקציה ואת שגיאות הקריסה של PyInstaller
+    - name: Build EXE (PyInstaller Fixed)
+      shell: powershell
       run: |
-        import os
+        # פותר את בעיית ה-ModuleNotFoundError עבור התיקייה gui
+        $env:PYTHONPATH = "."
         
-        # 1. תיקון קובץ הבנייה - מונע את קריסת ONNX ומבטל UPX שמשחית קבצי AI
-        if os.path.exists("build_exe.py"):
-            with open("build_exe.py", "r", encoding="utf-8") as f:
-                code = f.read()
-            code = code.replace("upx=True", "upx=False")
-            code = code.replace("excludes=[", "excludes=
+        # בנייה עם PyInstaller שכוללת את כל התיקונים
+        pyinstaller --noconfirm --onedir --windowed `
+        --name "MyCustomOCR" `
+        --add-data "data;data" `
+        --add-data "weights;weights" `
+        --add-data "checkpoints;checkpoints" `
+        --collect-binaries onnxruntime `
+        --exclude-module matplotlib `
+        --exclude-module notebook `
+        --hidden-import gui `
+        --hidden-import torch `
+        --paths "." `
+        gui/app.py
+
+    - name: Ultra-Compress with 7-Zip
+      shell: powershell
+      run: |
+        # מוודא שהבנייה הצליחה לפני שהוא דוחס
+        if (Test-Path dist/MyCustomOCR) {
+            & "C:\Program Files\7-Zip\7z.exe" a -tzip -mx=9 MyOCR_Windows.zip .\dist\MyCustomOCR\*
+        } else {
+            Write-Error "❌ Build failed - dist/MyCustomOCR folder not found!"
+            exit 1
+        }
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v2
+      with:
+        files: MyOCR_Windows.zip
+        tag_name: v3.0.${{ github.run_number }}
+        name: OCR Ultra-Light Release v3.0.${{ github.run_number }}
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
