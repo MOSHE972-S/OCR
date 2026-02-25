@@ -1,15 +1,16 @@
-name: PyInstaller Fast Build # שם שונה כדי שלא יבטל את הריצה הקודמת
+name: PyInstaller Fast Build
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: # הפעלה ידנית בלבד
 
 permissions:
-  contents: write
+  contents: write # חשוב ליצירת ה-Release
 
 jobs:
   build:
     runs-on: windows-latest
     env:
+      # פותר את בעיית העברית והאמוג'ים בקידוד Windows
       PYTHONIOENCODING: utf-8
 
     steps:
@@ -22,17 +23,26 @@ jobs:
         python-version: '3.12'
         cache: 'pip'
 
-    - name: Pre-Build Setup
-      run: mkdir -p data weights checkpoints
+    - name: Pre-Build Setup (Windows Fix)
+      shell: powershell
+      run: |
+        # יצירת התיקיות אחת אחת כדי למנוע שגיאות פרמטרים ב-PowerShell
+        if (!(Test-Path data)) { New-Item -ItemType Directory -Path data }
+        if (!(Test-Path weights)) { New-Item -ItemType Directory -Path weights }
+        if (!(Test-Path checkpoints)) { New-Item -ItemType Directory -Path checkpoints }
+        Write-Host "✅ תיקיות נוצרו בהצלחה"
 
     - name: Install Dependencies
       run: |
         python -m pip install --upgrade pip
+        # התקנת גרסת CPU - חוסך המון זמן ומשקל ב-EXE
         pip install torch==2.3.1 torchvision==0.18.1 --index-url https://download.pytorch.org/whl/cpu
         pip install onnxruntime==1.18.1 opencv-python-headless pandas PyQt6 Pillow numpy jiwer pyinstaller albumentations
 
     - name: Build EXE
+      shell: powershell
       run: |
+        # שימוש ב-` לשבירת שורות ב-PowerShell
         pyinstaller --noconfirm --onedir --windowed `
         --name "MyCustomOCR_Fast" `
         --add-data "data;data" `
@@ -46,15 +56,23 @@ jobs:
         --hidden-import torchvision `
         gui/app.py
 
-    - name: Zip
+    - name: Zip Result
       shell: powershell
-      run: Compress-Archive -Path dist/MyCustomOCR_Fast -DestinationPath MyOCR_Fast_Windows.zip
+      run: |
+        if (Test-Path dist/MyCustomOCR_Fast) {
+            Compress-Archive -Path dist/MyCustomOCR_Fast -DestinationPath MyOCR_Fast_Windows.zip
+        } else {
+            Write-Error "❌ התיקייה לא נוצרה - הבנייה נכשלה"
+            exit 1
+        }
 
-    - name: Create Release
+    - name: Create Fast Release
       uses: softprops/action-gh-release@v2
       with:
         files: MyOCR_Fast_Windows.zip
         tag_name: fast-v1.0.${{ github.run_number }}
         name: Fast PyInstaller Release ${{ github.run_number }}
+        draft: false
+        prerelease: false
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
