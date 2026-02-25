@@ -1,21 +1,46 @@
-- name: Create Required Folders
+name: Super Fast Release Build (Nuitka)
+
+on:
+  workflow_dispatch: # מאפשר הפעלה ידנית בלבד (דרך כפתור Run workflow ב-GitHub)
+
+permissions:
+  contents: write # נדרש כדי ליצור Release
+
+jobs:
+  build:
+    runs-on: windows-latest
+    env:
+      PYTHONUTF8: 1 # פותר את קריסות קידוד העברית והאימוג'ים בסביבת Windows
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: Setup Python 3.11
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11' # גרסה מומלצת ויציבה עבור PyTorch ו-Nuitka
+        cache: 'pip'
+
+    - name: Create Required Folders & Dummy Files
       shell: bash
       run: |
         mkdir -p data/raw_scans data/processed src gui weights checkpoints
-        # Nuitka שונא תיקיות ריקות, אז ניצור קובץ ריק קטן בכל אחת מהן כדי שיהיה לו מה להעתיק
+        # Nuitka מדלג על תיקיות ריקות וזורק אזהרה, לכן ניצור קובץ נסתר קטן בכל אחת מהן
         touch data/.keep weights/.keep checkpoints/.keep
 
     - name: Install Dependencies
       run: |
         python -m pip install --upgrade pip
+        # התקנת PyTorch גרסת CPU בלבד כדי לחסוך משקל עצום וזמן בנייה
         pip install torch==2.3.1 torchvision==0.18.1 --index-url https://download.pytorch.org/whl/cpu
+        # התקנת שאר הספריות הנדרשות (כולל Headless ל-OpenCV כדי למנוע התנגשות עם PyQt6)
         pip install onnxruntime==1.18.1 onnx opencv-python-headless albumentations pandas PyQt6 Pillow numpy jiwer
+        # התקנת Nuitka וכלי דחיסה (zstandard)
         pip install nuitka zstandard
 
     - name: Build EXE with Nuitka
       shell: cmd
-      env:
-        PYTHONUTF8: 1
       run: |
         python -m nuitka ^
           --standalone ^
@@ -37,7 +62,10 @@
     - name: Rename and Zip for Speed
       shell: powershell
       run: |
+        # Nuitka יוצר את הקבצים בתוך תקייה שנקראת app.dist (כי קובץ המקור הוא app.py)
+        # נשנה את שמה לשם האפליקציה שיהיה ברור למשתמש
         Rename-Item -Path "dist\app.dist" -NewName "MyCustomOCR_App"
+        # דחיסה ל-ZIP
         Compress-Archive -Path "dist\MyCustomOCR_App" -DestinationPath "MyOCR_Windows.zip"
 
     - name: Create Fast Release
