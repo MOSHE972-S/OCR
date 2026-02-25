@@ -1,0 +1,60 @@
+name: Build MyCustomOCR EXE
+
+on:
+  push:
+    branches: [ main, master ] # ירוץ בכל פעם שתעלה קוד לענף הראשי
+  workflow_dispatch: # מאפשר לך להריץ את הבנייה ידנית מהאתר
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+        cache: 'pip' # מייעל בנייה חוזרת
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        # התקנת torch ל-CPU כדי שה-EXE לא יהיה 5GB
+        pip install torch==2.3.1 torchvision==0.18.1 --index-url https://download.pytorch.org/whl/cpu
+        pip install onnx onnxruntime==1.18.1 opencv-python albumentations pandas PyQt6 Pillow numpy jiwer pyinstaller
+
+    - name: Prepare Workspace
+      run: |
+        # יצירת התיקיות שה-PyInstaller מצפה להן (כדי שלא ייכשל)
+        if (!(Test-Path "weights")) { New-Item -ItemType Directory -Path "weights" }
+        if (!(Test-Path "checkpoints")) { New-Item -ItemType Directory -Path "checkpoints" }
+        if (!(Test-Path "data")) { New-Item -ItemType Directory -Path "data" }
+        # יצירת קובץ דמי בתוך data למקרה שהתיקייה ריקה
+        Set-Content -Path "data/placeholder.txt" -Value "data"
+
+    - name: Build EXE with PyInstaller
+      run: |
+        # הרצת הפקודה בדיוק כפי שהגדרת בסקריפט ה-Builder שלך
+        # הוספתי את --exclude-module onnx.reference כדי למנוע את הקריסה שראינו קודם
+        pyinstaller --noconfirm --onedir --windowed `
+          --name "MyCustomOCR" `
+          --add-data "data;data" `
+          --add-data "weights;weights" `
+          --add-data "checkpoints;checkpoints" `
+          --hidden-import onnxruntime `
+          --hidden-import cv2 `
+          --hidden-import albumentations `
+          --hidden-import pandas `
+          --hidden-import torch `
+          --hidden-import torchvision `
+          --exclude-module onnx.reference `
+          gui/app.py
+
+    - name: Upload Finished EXE
+      uses: actions/upload-artifact@v4
+      with:
+        name: MyCustomOCR-Windows-Build
+        path: dist/MyCustomOCR/
